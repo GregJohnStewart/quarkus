@@ -350,6 +350,11 @@ class MongodbPanacheResourceTest {
     }
 
     @Test
+    public void testDatesFormat() {
+        get("/bugs/dates").then().statusCode(200);
+    }
+
+    @Test
     public void testNeedReflection() {
         get("/bugs/6324").then().statusCode(200);
 
