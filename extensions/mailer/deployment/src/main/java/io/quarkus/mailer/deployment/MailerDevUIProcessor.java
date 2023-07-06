@@ -12,10 +12,14 @@ public class MailerDevUIProcessor {
         CardPageBuildItem pageBuildItem = new CardPageBuildItem();
 
         pageBuildItem.addPage(Page.webComponentPageBuilder()
+                .componentName("checkEmailLink")
+
                 .icon("font-awesome-solid:envelope")
                 //                .componentLink("qwc-arc-beans.js")
 
                 .staticLabel(String.valueOf(0)));
+
+        pageBuildItem.addBuildTimeData("Emails Sent", null);
 
         return pageBuildItem;
     }
