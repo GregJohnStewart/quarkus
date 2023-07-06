@@ -1,5 +1,7 @@
 package io.quarkus.analytics;
 
+import static io.quarkus.analytics.util.PropertyUtils.getProperty;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,13 +32,9 @@ public class ConfigService {
     public static final String QUARKUS_ANALYTICS_PROMPT_TIMEOUT = "quarkus.analytics.prompt.timeout";
     private static final String NEW_LINE = System.lineSeparator();
     public static final String ACCEPTANCE_PROMPT = NEW_LINE
-            + "********************************************************************************************************"
-            + NEW_LINE
-            + "********************************************************************************************************"
-            + NEW_LINE
-            + "********************************************************************************************************"
-            + NEW_LINE
-            + "* Please help improve Quarkus!" + NEW_LINE
+            + "----------------------------" + NEW_LINE
+            + "--- Help improve Quarkus ---" + NEW_LINE
+            + "----------------------------" + NEW_LINE
             + "* Learn more: https://quarkus.io/usage/" + NEW_LINE
             + "* Do you agree to contribute anonymous build time data to the Quarkus community? (y/n) " + NEW_LINE;
     private static final int DEFAULT_REFRESH_HOURS = 12;
@@ -74,8 +72,8 @@ public class ConfigService {
     }
 
     public void userAcceptance(Function<String, String> analyticsEnabledSupplier) {
-        final int timeout = Integer.getInteger(QUARKUS_ANALYTICS_PROMPT_TIMEOUT, 10);
-        if (Files.exists(localConfigFile) || Boolean.getBoolean(QUARKUS_ANALYTICS_DISABLED_LOCAL_PROP)) {
+        final int timeout = getProperty(QUARKUS_ANALYTICS_PROMPT_TIMEOUT, 10);
+        if (Files.exists(localConfigFile) || getProperty(QUARKUS_ANALYTICS_DISABLED_LOCAL_PROP, false)) {
             return; // ask nothing
         } else {
             try {
@@ -89,7 +87,8 @@ public class ConfigService {
                 }
                 final boolean isActive = userInput.equals("y") || userInput.equals("yes") || userInput.startsWith("yy");
                 FileUtils.createFileAndParent(localConfigFile);
-                FileUtils.write(new LocalConfig(isActive), localConfigFile);
+                final boolean isDisabled = !isActive;// just to make it explicit
+                FileUtils.write(new LocalConfig(isDisabled), localConfigFile);
                 log.info("[Quarkus build analytics] Quarkus Build Analytics " + (isActive ? "enabled" : "disabled")
                         + " by the user." + NEW_LINE);
             } catch (TimeoutException e) {
@@ -122,12 +121,12 @@ public class ConfigService {
         if (!Files.exists(localConfigFile)) {
             return false; // disabled because user has not decided yet
         } else if (!loadConfig(LocalConfig.class, localConfigFile)
-                .map(LocalConfig::isActive)
+                .map(localConfig -> !localConfig.isDisabled())
                 .orElse(true)) {
             return false; // disabled by the user and recorded on the local config
         }
 
-        if (Boolean.getBoolean(QUARKUS_ANALYTICS_DISABLED_LOCAL_PROP)) {
+        if (getProperty(QUARKUS_ANALYTICS_DISABLED_LOCAL_PROP, false)) {
             return false; // disabled by local property
         }
         AnalyticsRemoteConfig analyticsRemoteConfig = getRemoteConfig();

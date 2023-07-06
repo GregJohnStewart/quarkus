@@ -95,6 +95,7 @@ public class BootstrapMavenContext {
     private static final String MAVEN_SETTINGS = "maven.settings";
     private static final String MAVEN_TOP_LEVEL_PROJECT_BASEDIR = "maven.top-level-basedir";
     private static final String SETTINGS_XML = "settings.xml";
+    private static final String SETTINGS_SECURITY = "settings.security";
 
     private static final String EFFECTIVE_MODEL_BUILDER_PROP = "quarkus.bootstrap.effective-model-builder";
 
@@ -271,11 +272,17 @@ public class BootstrapMavenContext {
     }
 
     public RepositorySystem getRepositorySystem() throws BootstrapMavenException {
-        return repoSystem == null ? repoSystem = newRepositorySystem() : repoSystem;
+        if (repoSystem == null) {
+            initRepoSystemAndManager();
+        }
+        return repoSystem;
     }
 
     public RemoteRepositoryManager getRemoteRepositoryManager() {
-        return remoteRepoManager == null ? remoteRepoManager = newRemoteRepositoryManager() : remoteRepoManager;
+        if (remoteRepoManager == null) {
+            initRepoSystemAndManager();
+        }
+        return remoteRepoManager;
     }
 
     public RepositorySystemSession getRepositorySystemSession() throws BootstrapMavenException {
@@ -291,7 +298,10 @@ public class BootstrapMavenContext {
     }
 
     private SettingsDecrypter getSettingsDecrypter() {
-        return settingsDecrypter == null ? settingsDecrypter = newSettingsDecrypter() : settingsDecrypter;
+        if (settingsDecrypter == null) {
+            initRepoSystemAndManager();
+        }
+        return settingsDecrypter;
     }
 
     public Settings getEffectiveSettings() throws BootstrapMavenException {
@@ -428,15 +438,9 @@ public class BootstrapMavenContext {
         final Settings settings = getEffectiveSettings();
         final List<Mirror> mirrors = settings.getMirrors();
         if (mirrors != null && !mirrors.isEmpty()) {
-            final boolean isBlockedMethodAvailable = mirrorIsBlockedMethodAvailable();
             final DefaultMirrorSelector ms = new DefaultMirrorSelector();
             for (Mirror m : mirrors) {
-                if (isBlockedMethodAvailable) {
-                    ms.add(m.getId(), m.getUrl(), m.getLayout(), false, m.isBlocked(), m.getMirrorOf(), m.getMirrorOfLayouts());
-                } else {
-                    // Maven pre-3.8.x
-                    ms.add(m.getId(), m.getUrl(), m.getLayout(), false, m.getMirrorOf(), m.getMirrorOfLayouts());
-                }
+                ms.add(m.getId(), m.getUrl(), m.getLayout(), false, m.isBlocked(), m.getMirrorOf(), m.getMirrorOfLayouts());
             }
             session.setMirrorSelector(ms);
         }
@@ -463,7 +467,17 @@ public class BootstrapMavenContext {
         final SettingsDecryptionRequest decrypt = new DefaultSettingsDecryptionRequest();
         decrypt.setProxies(settings.getProxies());
         decrypt.setServers(settings.getServers());
+        // set settings.security property to ~/.m2/settings-security.xml unless it's already set to some other value
+        File settingsSecurityXml = null;
+        final boolean setSettingsSecurity = !System.getProperties().contains(SETTINGS_SECURITY)
+                && ((settingsSecurityXml = new File(getUserMavenConfigurationHome(), "settings-security.xml")).exists());
+        if (setSettingsSecurity) {
+            System.setProperty(SETTINGS_SECURITY, settingsSecurityXml.toString());
+        }
         final SettingsDecryptionResult decrypted = getSettingsDecrypter().decrypt(decrypt);
+        if (setSettingsSecurity) {
+            System.clearProperty(SETTINGS_SECURITY);
+        }
         if (!decrypted.getProblems().isEmpty() && log.isDebugEnabled()) {
             // this is how maven handles these
             for (SettingsProblem p : decrypted.getProblems()) {
@@ -842,21 +856,6 @@ public class BootstrapMavenContext {
         return new Proxy(proxy.getProtocol(), proxy.getHost(), proxy.getPort(), auth);
     }
 
-    private RepositorySystem newRepositorySystem() throws BootstrapMavenException {
-        initRepoSystemAndManager();
-        return repoSystem;
-    }
-
-    public RemoteRepositoryManager newRemoteRepositoryManager() {
-        initRepoSystemAndManager();
-        return remoteRepoManager;
-    }
-
-    private SettingsDecrypter newSettingsDecrypter() {
-        initRepoSystemAndManager();
-        return settingsDecrypter;
-    }
-
     private void initRepoSystemAndManager() {
         final MavenFactory factory = configureMavenFactory();
         if (repoSystem == null) {
@@ -871,7 +870,7 @@ public class BootstrapMavenContext {
     }
 
     protected MavenFactory configureMavenFactory() {
-        final MavenFactory factory = MavenFactory.create(RepositorySystem.class.getClassLoader(), builder -> {
+        return MavenFactory.create(RepositorySystem.class.getClassLoader(), builder -> {
             builder.addBean(ModelBuilder.class).setSupplier(new BeanSupplier<ModelBuilder>() {
                 @Override
                 public ModelBuilder get(Scope scope) {
@@ -879,7 +878,6 @@ public class BootstrapMavenContext {
                 }
             }).setPriority(100).build();
         });
-        return factory;
     }
 
     private static String getUserAgent() {
@@ -1099,15 +1097,6 @@ public class BootstrapMavenContext {
     private static boolean isMavenRepoEnvVarOption(String varName, String repoId, String option) {
         return varName.length() == BOOTSTRAP_MAVEN_REPO_PREFIX.length() + repoId.length() + option.length()
                 && varName.endsWith(option);
-    }
-
-    private static boolean mirrorIsBlockedMethodAvailable() {
-        try {
-            Mirror.class.getMethod("isBlocked");
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     private static FileProfileActivator createFileProfileActivator() throws BootstrapMavenException {
